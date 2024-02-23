@@ -289,7 +289,7 @@ def plot_dtwbplas(df_plasma,df_wb,threshold=7*24,ax=False):
     sns.set_style("white")   
     ax.spines[['top','right']].set_visible(False)
     ax.set_xlabel('Draw time interval (WB-Plas, hrs)')
-    ax.set_xlim([-75,75])
+    ax.set_xlim([-5,5])
     return(res)
 
 
@@ -340,10 +340,13 @@ def plot_blandaltman(df_plasma:pd.DataFrame,df_wb:pd.DataFrame,dt_threshold:floa
     ax[1].plot([0,9],[0,0],'k',alpha=0.5,linestyle=':',linewidth=1)
     ax[1].set_ylabel('WB K - Plasma K (mmol/L)')
     ax[1].set_xlabel('Plasma K (mmol/L)')
+    print((df_paired.loc[filt_dt&filt_luoh,'Potassium WB']-df_paired.loc[filt_dt&filt_luoh,'Potassium Plas']).mean())
+
     plt.tight_layout()
 
     ax[1].set_xlim([0,9])
     ax[1].set_ylim([-5,5])
+    return(df_paired.loc[filt_dt&filt_luoh,'Potassium WB']-df_paired.loc[filt_dt&filt_luoh,'Potassium Plas'])
 
 def plot_confusionmatrix(df_plasma:pd.DataFrame,df_wb:pd.DataFrame,dt_threshold:float=2.0,luoh_threshold:int=50):
     """Plots confusion matrix for WB vs Plasma"""
@@ -380,6 +383,77 @@ def plot_confusionmatrix(df_plasma:pd.DataFrame,df_wb:pd.DataFrame,dt_threshold:
     return(res)
 
 
+def filter_hemolyzed(df_plasma:pd.DataFrame,threshold_hi:float=50)->pd.DataFrame:
+    '''Returns dataframe after filtering plasma specimen hemolyzed beyond threshold'''
+    filt_luo=df_plasma['TASK_ASSAY']=='LUO-H'
+    acc_not_hemolyzed=set(df_plasma.loc[(filt_luo)&(df_plasma['RESULT_VALUE_NUMERIC']<threshold_hi),'ACCESSION'])
+    dff=df_plasma.loc[df_plasma['ACCESSION'].isin(acc_not_hemolyzed)]    
+    return(dff)
+
+
+def paired_plasma_k(df_plasma:pd.DataFrame,threshold_hi:float=50,dt_threshold:int=2)->pd.DataFrame:
+    '''Returns dataframe with non-heolyzed plasma-plasma k pairs within threshold time in hours'''
+    dff=filter_hemolyzed(df_plasma,threshold_hi)
+    dff=dff.loc[dff['TASK_ASSAY']=='Potassium Plas']
+    dff['COLLECTED_DT_TM']=dff['DRAWN_DT_TM']
+    dff=dff[['ACCESSION','DRAWN_DT_TM','COLLECTED_DT_TM','PERSON_ID','RESULT_VALUE_NUMERIC','TASK_ASSAY']].sort_values(by='DRAWN_DT_TM',ascending=True)
+    dff=pd.merge_asof(dff,dff,on='DRAWN_DT_TM',by='PERSON_ID',direction='nearest',allow_exact_matches=False,tolerance=pd.Timedelta(f'{dt_threshold}h') )
+    dff=dff.loc[(~dff['RESULT_VALUE_NUMERIC_x'].isna())&(~dff['RESULT_VALUE_NUMERIC_y'].isna())]    
+    dff=dff.loc[dff['ACCESSION_x'].isin(dff['ACCESSION_y'])]
+    return(dff)
+
+def plot_plasma_plasma_differences(df_plasma_plasma:pd.DataFrame,ax=False):
+    '''Plots comparison of paired non-hemolyzed plasma k results'''    
+    fig,ax=plt.subplots(1,2)
+    fig.set_size_inches(6,3)
+    slope, intercept, r_value, p_value, std_err = linregress(x=df_plasma_plasma['RESULT_VALUE_NUMERIC_x'], y=df_plasma_plasma['RESULT_VALUE_NUMERIC_y'])
+    ax[0].annotate(f'$y={slope:.3f}x{intercept:+.2f}$\n$r^2 = {r_value ** 2:.2f}$',
+                xy=(.05, .95), xycoords=ax[0].transAxes, fontsize=8,
+                color='black', backgroundcolor='#FFFFFF00', ha='left', va='top')
+    sns.regplot(
+        df_plasma_plasma['RESULT_VALUE_NUMERIC_x'],
+        df_plasma_plasma['RESULT_VALUE_NUMERIC_y'],
+        scatter_kws={'alpha':0.5,
+                        's':5,
+                        'color':'gray',
+                        'linewidth':0},
+        line_kws={'color':'black',
+                    'linewidth':1},        
+        ax=ax[0]
+    )
+    ax[0].spines['top'].set_visible(False)
+    ax[0].spines['right'].set_visible(False)
+    ax[0].set_ylabel('Plasma K (mmol/L) Result 1')
+    ax[0].set_xlabel('Plasma K (mmol/L) Result 2')
+    ax[0].set_xlim([0,9])
+    ax[0].set_ylim([0,9])
+    ax[0].vlines(3.3,0,9,linestyle=':',color='black',linewidth=0.5)
+    ax[0].vlines(5,0,9,linestyle=':',color='black',linewidth=0.5)
+    ax[0].hlines(3.3,0,9,linestyle=':',color='black',linewidth=0.5)
+    ax[0].hlines(4.9,0,9,linestyle=':',color='black',linewidth=0.5)
+
+    sns.scatterplot(
+        df_plasma_plasma[['RESULT_VALUE_NUMERIC_x','RESULT_VALUE_NUMERIC_y']].mean(axis=1),
+        df_plasma_plasma['RESULT_VALUE_NUMERIC_x']-df_plasma_plasma['RESULT_VALUE_NUMERIC_y'],
+        s=5,
+        alpha=0.5,
+        ax=ax[1],
+        color='gray'
+    )
+    ax[1].spines['top'].set_visible(False)
+    ax[1].spines['right'].set_visible(False)
+    ax[1].plot([0,9],[0,0],'k',alpha=0.5,linestyle=':',linewidth=1)
+    ax[1].set_ylabel('Delta Plasma K (mmol/L)')
+    ax[1].set_xlabel('Mean Plasma K (mmol/L)')
+    plt.tight_layout()
+
+    ax[1].set_xlim([0,9])
+    ax[1].set_ylim([-5,5])    
+    return(df_plasma_plasma['RESULT_VALUE_NUMERIC_x']-df_plasma_plasma['RESULT_VALUE_NUMERIC_y'])
+
+
+
+
 #%%
 def main():
     # plasma
@@ -400,10 +474,98 @@ def main():
     plot_kcdf(df_plasma,dta='Potassium Plas')
     plot_kcdf(df_wb,dta='Potassium WB')
     plot_kvluoh(df_plasma)
-    plot_blandaltman(df_plasma,df_wb)
+    wp_diff=plot_blandaltman(df_plasma,df_wb)
     res=plot_confusionmatrix(df_plasma,df_wb)
-    return(df_plasma,df_wb,res)
+    df_plasma_plasma=paired_plasma_k(df_plasma,threshold_hi=50,dt_threshold=2)
+    pp_diff=plot_plasma_plasma_differences(df_plasma_plasma)
+    return(df_plasma,df_wb,res,wp_diff,pp_diff)
 
 if __name__=='__main__':
-    df_plasma,df_wb,res=main()
+    df_plasma,df_wb,res,wp_diff,pp_diff=main()
     print(res)
+
+# %%
+fig,ax=plt.subplots()
+fig.set_size_inches(5,3)
+sns.ecdfplot(
+    wp_diff,
+    ax=ax,
+    color='k',
+    label='WB-Plasma'
+)
+sns.ecdfplot(
+    pp_diff,
+    ax=ax,
+    color='gray',
+    label='Plasma-Plasma'
+)
+ax.spines[['top','right']].set_visible(False)
+ax.set_xlabel('Difference in K (mmol/L)')
+ax.set_ylabel('Cumulative fraction')
+ax.set_xlim([-5,5])
+ax.set_ylim([-0.05,1.05])
+ax.legend()
+ax.vlines(0,0,1,linestyle=':',color='k',linewidth=0.5)
+ax.vlines(wp_diff.mean(),0,1,linestyle=':',color='r',linewidth=0.5)
+ax.vlines(pp_diff.mean(),0,1,linestyle=':',color='g',linewidth=0.5)
+
+
+# %%
+
+
+from scipy.stats import bootstrap
+
+res_wp = bootstrap((np.array(wp_diff),), np.mean)
+res_pp = bootstrap((np.array(pp_diff),), np.mean)
+
+fig,ax=plt.subplots()
+sns.histplot(
+    res_wp.bootstrap_distribution,
+    ax=ax,
+    label='WB-Plasma',
+    color='k'
+)
+sns.histplot(
+    res_pp.bootstrap_distribution,
+    ax=ax,
+    label='Plasma-Plasma',
+    color='gray'
+)
+ax.spines[['top','right']].set_visible(False)
+ax.set_xlabel('Mean Difference in K (mmol/L)')
+ax.set_ylabel('# Bootstrap samples')
+
+
+
+fig,ax=plt.subplots()
+ax.boxplot(
+    [res_wp.bootstrap_distribution,res_pp.bootstrap_distribution],)
+ax.hlines(0,0,3,linestyle=':',color='k',linewidth=0.5)
+ax.set_xticklabels(['WB-Plasma','Plasma-Plasma'])
+ax.spines[['top','right']].set_visible(False)
+ax.set_ylabel('Mean Difference in K (mmol/L)')
+
+#%%
+print(
+    f'WB-Plasma: Mean difference: {np.mean(wp_diff):.2f}\n',
+    f'WB-Plasma: STD difference: {np.std(wp_diff):.2f}\n',
+    f'WB-Plasma: n: {len(wp_diff)}\n',
+    f'WB-Plasma: Bootstrap 5-95% CI: {np.percentile(res_wp.bootstrap_distribution,5):.2f} - {np.percentile(res_wp.bootstrap_distribution,95):.2f}\n',
+    f'WB-Plasma: 1th percentile: {np.percentile(wp_diff,1):.2f}\n',
+    f'WB-Plasma: 5th percentile: {np.percentile(wp_diff,5):.2f}\n',
+    f'WB-Plasma: 50th percentile: {np.percentile(wp_diff,50):.2f}\n', 
+    f'WB-Plasma: 95th percentile: {np.percentile(wp_diff,95):.2f}\n'
+    f'WB-Plasma: 99th percentile: {np.percentile(wp_diff,99):.2f}\n'
+)
+
+print(
+    f'Plasma-Plasma: Mean difference: {np.mean(pp_diff):.2f}\n',
+    f'Plasma-Plasma: STD difference: {np.std(pp_diff):.2f}\n',
+    f'Plasma-Plasma: n: {len(pp_diff)}\n',
+    f'Plasma-Plasma: Bootstrap 5-95% CI: {np.percentile(res_pp.bootstrap_distribution,5):.2f} - {np.percentile(res_pp.bootstrap_distribution,95):.2f}\n',
+    f'Plasma-Plasma: 1th percentile: {np.percentile(pp_diff,1):.2f}\n',
+    f'Plasma-Plasma: 5th percentile: {np.percentile(pp_diff,5):.2f}\n',
+    f'Plasma-Plasma: 50th percentile: {np.percentile(pp_diff,50):.2f}\n',
+    f'Plasma-Plasma: 95th percentile: {np.percentile(pp_diff,95):.2f}\n'
+    f'Plasma-Plasma: 99th percentile: {np.percentile(pp_diff,99):.2f}\n'
+)
