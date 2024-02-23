@@ -15,7 +15,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from scipy.stats import wilcoxon,linregress
+from scipy.stats import bootstrap,wilcoxon,linregress
+
 
 #%% read in data
 def import_data(dpath:str)->pd.DataFrame:
@@ -453,6 +454,54 @@ def plot_plasma_plasma_differences(df_plasma_plasma:pd.DataFrame,ax=False):
 
 
 
+def analyze_mean_bias(wp_diff,pp_diff):
+    '''Analyze mean bias of paired plasma-plasma and wb-plasma k results'''
+
+    res_wp = bootstrap((np.array(wp_diff),), np.mean)
+    res_pp = bootstrap((np.array(pp_diff),), np.mean)
+
+    fig,ax=plt.subplots()
+    sns.histplot(
+        res_wp.bootstrap_distribution,
+        ax=ax,
+        label='WB-Plasma',
+        color='k'
+    )
+    sns.histplot(
+        res_pp.bootstrap_distribution,
+        ax=ax,
+        label='Plasma-Plasma',
+        color='gray'
+    )
+    ax.spines[['top','right']].set_visible(False)
+    ax.set_xlabel('Mean Difference in K (mmol/L)')
+    ax.set_ylabel('# Bootstrap samples')
+
+    print(
+        f'WB-Plasma: Mean difference: {np.mean(wp_diff):.2f}\n',
+        f'WB-Plasma: STD difference: {np.std(wp_diff):.2f}\n',
+        f'WB-Plasma: n: {len(wp_diff)}\n',
+        f'WB-Plasma: Bootstrap 5-95% CI: {np.percentile(res_wp.bootstrap_distribution,5):.2f} - {np.percentile(res_wp.bootstrap_distribution,95):.2f}\n',
+        f'WB-Plasma: 1th percentile: {np.percentile(wp_diff,1):.2f}\n',
+        f'WB-Plasma: 5th percentile: {np.percentile(wp_diff,5):.2f}\n',
+        f'WB-Plasma: 50th percentile: {np.percentile(wp_diff,50):.2f}\n', 
+        f'WB-Plasma: 95th percentile: {np.percentile(wp_diff,95):.2f}\n'
+        f'WB-Plasma: 99th percentile: {np.percentile(wp_diff,99):.2f}\n'
+    )
+
+    print(
+        f'Plasma-Plasma: Mean difference: {np.mean(pp_diff):.2f}\n',
+        f'Plasma-Plasma: STD difference: {np.std(pp_diff):.2f}\n',
+        f'Plasma-Plasma: n: {len(pp_diff)}\n',
+        f'Plasma-Plasma: Bootstrap 5-95% CI: {np.percentile(res_pp.bootstrap_distribution,5):.2f} - {np.percentile(res_pp.bootstrap_distribution,95):.2f}\n',
+        f'Plasma-Plasma: 1th percentile: {np.percentile(pp_diff,1):.2f}\n',
+        f'Plasma-Plasma: 5th percentile: {np.percentile(pp_diff,5):.2f}\n',
+        f'Plasma-Plasma: 50th percentile: {np.percentile(pp_diff,50):.2f}\n',
+        f'Plasma-Plasma: 95th percentile: {np.percentile(pp_diff,95):.2f}\n'
+        f'Plasma-Plasma: 99th percentile: {np.percentile(pp_diff,99):.2f}\n'
+    )
+
+
 
 #%%
 def main():
@@ -478,94 +527,13 @@ def main():
     res=plot_confusionmatrix(df_plasma,df_wb)
     df_plasma_plasma=paired_plasma_k(df_plasma,threshold_hi=50,dt_threshold=2)
     pp_diff=plot_plasma_plasma_differences(df_plasma_plasma)
+    analyze_mean_bias(wp_diff,pp_diff)
     return(df_plasma,df_wb,res,wp_diff,pp_diff)
 
 if __name__=='__main__':
     df_plasma,df_wb,res,wp_diff,pp_diff=main()
     print(res)
 
-# %%
-fig,ax=plt.subplots()
-fig.set_size_inches(5,3)
-sns.ecdfplot(
-    wp_diff,
-    ax=ax,
-    color='k',
-    label='WB-Plasma'
-)
-sns.ecdfplot(
-    pp_diff,
-    ax=ax,
-    color='gray',
-    label='Plasma-Plasma'
-)
-ax.spines[['top','right']].set_visible(False)
-ax.set_xlabel('Difference in K (mmol/L)')
-ax.set_ylabel('Cumulative fraction')
-ax.set_xlim([-5,5])
-ax.set_ylim([-0.05,1.05])
-ax.legend()
-ax.vlines(0,0,1,linestyle=':',color='k',linewidth=0.5)
-ax.vlines(wp_diff.mean(),0,1,linestyle=':',color='r',linewidth=0.5)
-ax.vlines(pp_diff.mean(),0,1,linestyle=':',color='g',linewidth=0.5)
 
 
 # %%
-
-
-from scipy.stats import bootstrap
-
-res_wp = bootstrap((np.array(wp_diff),), np.mean)
-res_pp = bootstrap((np.array(pp_diff),), np.mean)
-
-fig,ax=plt.subplots()
-sns.histplot(
-    res_wp.bootstrap_distribution,
-    ax=ax,
-    label='WB-Plasma',
-    color='k'
-)
-sns.histplot(
-    res_pp.bootstrap_distribution,
-    ax=ax,
-    label='Plasma-Plasma',
-    color='gray'
-)
-ax.spines[['top','right']].set_visible(False)
-ax.set_xlabel('Mean Difference in K (mmol/L)')
-ax.set_ylabel('# Bootstrap samples')
-
-
-
-fig,ax=plt.subplots()
-ax.boxplot(
-    [res_wp.bootstrap_distribution,res_pp.bootstrap_distribution],)
-ax.hlines(0,0,3,linestyle=':',color='k',linewidth=0.5)
-ax.set_xticklabels(['WB-Plasma','Plasma-Plasma'])
-ax.spines[['top','right']].set_visible(False)
-ax.set_ylabel('Mean Difference in K (mmol/L)')
-
-#%%
-print(
-    f'WB-Plasma: Mean difference: {np.mean(wp_diff):.2f}\n',
-    f'WB-Plasma: STD difference: {np.std(wp_diff):.2f}\n',
-    f'WB-Plasma: n: {len(wp_diff)}\n',
-    f'WB-Plasma: Bootstrap 5-95% CI: {np.percentile(res_wp.bootstrap_distribution,5):.2f} - {np.percentile(res_wp.bootstrap_distribution,95):.2f}\n',
-    f'WB-Plasma: 1th percentile: {np.percentile(wp_diff,1):.2f}\n',
-    f'WB-Plasma: 5th percentile: {np.percentile(wp_diff,5):.2f}\n',
-    f'WB-Plasma: 50th percentile: {np.percentile(wp_diff,50):.2f}\n', 
-    f'WB-Plasma: 95th percentile: {np.percentile(wp_diff,95):.2f}\n'
-    f'WB-Plasma: 99th percentile: {np.percentile(wp_diff,99):.2f}\n'
-)
-
-print(
-    f'Plasma-Plasma: Mean difference: {np.mean(pp_diff):.2f}\n',
-    f'Plasma-Plasma: STD difference: {np.std(pp_diff):.2f}\n',
-    f'Plasma-Plasma: n: {len(pp_diff)}\n',
-    f'Plasma-Plasma: Bootstrap 5-95% CI: {np.percentile(res_pp.bootstrap_distribution,5):.2f} - {np.percentile(res_pp.bootstrap_distribution,95):.2f}\n',
-    f'Plasma-Plasma: 1th percentile: {np.percentile(pp_diff,1):.2f}\n',
-    f'Plasma-Plasma: 5th percentile: {np.percentile(pp_diff,5):.2f}\n',
-    f'Plasma-Plasma: 50th percentile: {np.percentile(pp_diff,50):.2f}\n',
-    f'Plasma-Plasma: 95th percentile: {np.percentile(pp_diff,95):.2f}\n'
-    f'Plasma-Plasma: 99th percentile: {np.percentile(pp_diff,99):.2f}\n'
-)
